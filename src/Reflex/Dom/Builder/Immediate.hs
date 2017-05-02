@@ -23,6 +23,7 @@ import Reflex.Class as Reflex
 import Reflex.Dom.Builder.Class
 import Reflex.Dynamic
 import Reflex.Host.Class
+import qualified Reflex.Patch.DMapWithMove as PatchDMapWithMove
 import Reflex.PerformEvent.Class
 import Reflex.PostBuild.Class
 import Reflex.TriggerEvent.Base hiding (askEvents)
@@ -468,11 +469,12 @@ instance (Reflex t, MonadAdjust t m, MonadIO m, MonadHold t m, PerformEvent t m,
       let p = unPatchDMapWithMove p_
       phsBefore <- sample placeholders
       if DMap.null p then return Nothing else return $ Just $ do
-        let collectIfMoved :: forall a. k a -> DMapEdit k (Compose ((,,) DOM.DocumentFragment DOM.Text) v') a -> Performable m (Constant (Maybe DOM.DocumentFragment) a)
+
+        let collectIfMoved :: forall a. k a -> PatchDMapWithMove.NodeInfo k (Compose ((,,) DOM.DocumentFragment DOM.Text) v') a -> Performable m (Constant (Maybe DOM.DocumentFragment) a)
             collectIfMoved k e = do
               let mThisPlaceholder = Map.lookup (Some.This k) phsBefore -- Will be Nothing if this element wasn't present before
                   nextPlaceholder = maybe lastPlaceholder snd $ Map.lookupGT (Some.This k) phsBefore
-              case dmapEditMoved e of
+              case isJust $ getComposeMaybe $ PatchDMapWithMove._nodeInfo_to e of
                 False -> do
                   mapM_ (`deleteUpTo` nextPlaceholder) mThisPlaceholder
                   return $ Constant Nothing
@@ -480,15 +482,15 @@ instance (Reflex t, MonadAdjust t m, MonadIO m, MonadHold t m, PerformEvent t m,
                   Constant <$> mapM (`collectUpTo` nextPlaceholder) mThisPlaceholder
         collected <- DMap.traverseWithKey collectIfMoved p
         let phsAfter = fromMaybe phsBefore $ apply (weakenPatchDMapWithMoveWith (\(Compose (_, ph, _)) -> ph) p_) phsBefore --TODO: Don't recompute this
-        let placeFragment :: forall a. k a -> DMapEdit k (Compose ((,,) DOM.DocumentFragment DOM.Text) v') a -> Performable m (Constant () a)
+        let placeFragment :: forall a. k a -> PatchDMapWithMove.NodeInfo k (Compose ((,,) DOM.DocumentFragment DOM.Text) v') a -> Performable m (Constant () a)
             placeFragment k e = do
               let nextPlaceholder = maybe lastPlaceholder snd $ Map.lookupGT (Some.This k) phsAfter
-              case e of
-                DMapEdit_Insert _ (Compose (df, _, _)) -> do
+              case PatchDMapWithMove._nodeInfo_from e of
+                PatchDMapWithMove.From_Insert (Compose (df, _, _)) -> do
                   df `insertBefore` nextPlaceholder
-                DMapEdit_Delete _ -> do
+                PatchDMapWithMove.From_Delete -> do
                   return ()
-                DMapEdit_Move _ fromKey -> do
+                PatchDMapWithMove.From_Move fromKey -> do
                   Just (Constant mdf) <- return $ DMap.lookup fromKey collected
                   mapM_ (`insertBefore` nextPlaceholder) mdf
               return $ Constant ()
