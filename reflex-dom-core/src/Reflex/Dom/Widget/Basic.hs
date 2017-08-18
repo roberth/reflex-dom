@@ -53,6 +53,9 @@ module Reflex.Dom.Widget.Basic
   , elDynAttr'
   , elDynClass'
   , elDynAttrNS'
+  , elDynAttrWithModifyConfig
+  , elDynAttrWithModifyConfig'
+  , elDynAttrNSWithModifyConfig'
   , dynamicAttributesToModifyAttributes
 
   -- * List Utils
@@ -346,12 +349,24 @@ elDynClass' elementTag c = elDynAttr' elementTag (fmap ("class" =:) c)
 
 {-# INLINABLE elDynAttrNS' #-}
 elDynAttrNS' :: forall t m a. (DomBuilder t m, PostBuild t m) => Maybe Text -> Text -> Dynamic t (Map Text Text) -> m a -> m (Element EventResult (DomBuilderSpace m) t, a)
-elDynAttrNS' mns elementTag attrs child = do
+elDynAttrNS' = elDynAttrNSWithModifyConfig' id
+
+{-# INLINABLE elDynAttrWithModifyConfig #-}
+elDynAttrWithModifyConfig :: forall t m a. (DomBuilder t m, PostBuild t m) => (ElementConfig EventResult t (DomBuilderSpace m) -> ElementConfig EventResult t (DomBuilderSpace m)) -> Text -> Dynamic t (Map Text Text) -> m a -> m a
+elDynAttrWithModifyConfig f elementTag attrs child = snd <$> elDynAttrWithModifyConfig' f elementTag attrs child
+
+{-# INLINABLE elDynAttrWithModifyConfig' #-}
+elDynAttrWithModifyConfig' :: forall t m a. (DomBuilder t m, PostBuild t m) => (ElementConfig EventResult t (DomBuilderSpace m) -> ElementConfig EventResult t (DomBuilderSpace m)) -> Text -> Dynamic t (Map Text Text) -> m a -> m (Element EventResult (DomBuilderSpace m) t, a)
+elDynAttrWithModifyConfig' f = elDynAttrNSWithModifyConfig' f Nothing
+
+{-# INLINABLE elDynAttrNSWithModifyConfig' #-}
+elDynAttrNSWithModifyConfig' :: forall t m a. (DomBuilder t m, PostBuild t m) => (ElementConfig EventResult t (DomBuilderSpace m) -> ElementConfig EventResult t (DomBuilderSpace m)) -> Maybe Text -> Text -> Dynamic t (Map Text Text) -> m a -> m (Element EventResult (DomBuilderSpace m) t, a)
+elDynAttrNSWithModifyConfig' f mns elementTag attrs child = do
   modifyAttrs <- dynamicAttributesToModifyAttributes attrs
   let cfg = def
         & elementConfig_namespace .~ mns
         & modifyAttributes .~ fmapCheap mapKeysToAttributeName modifyAttrs
-  result <- element elementTag cfg child
+  result <- element elementTag (f cfg) child
   postBuild <- getPostBuild
   notReadyUntil postBuild
   return result
